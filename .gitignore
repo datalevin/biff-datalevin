@@ -1,3 +1,4 @@
+# Build artifacts
 pom.xml
 pom.xml.asc
 *.jar
@@ -6,9 +7,37 @@ pom.xml.asc
 /classes/
 /target/
 /checkouts/
+/dist/
+
+# Leiningen
 .lein-deps-sum
 .lein-repl-history
 .lein-plugins/
 .lein-failures
+
+# REPL
 .nrepl-port
 .cpcache/
+.clj-kondo/.cache/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.calva/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+/test-data/
+/tmp/
+
+# Datalevin databases
+*.mdb
+/data/
+/storage/
