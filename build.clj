@@ -31,5 +31,15 @@
 (defn deploy [_]
   (jar nil)
   (dd/deploy {:installer :remote
-              :artifact jar-file
-              :pom-file (str class-dir "/META-INF/maven/" (namespace lib) "/" (name lib) "/pom.xml")}))
+              :artifact  jar-file
+              :pom-file  (str class-dir "/META-INF/maven/" (namespace lib) "/" (name lib) "/pom.xml")}))
+
+(comment
+
+  ;; # Build JAR
+ ;; clojure -T:build jar
+
+ ;; # Deploy to Clojars (set CLOJARS_USERNAME and CLOJARS_PASSWORD env vars)
+ ;; clojure -T:build deploy
+
+  )
