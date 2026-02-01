@@ -15,7 +15,7 @@ A Clojure library that adapts [Biff](https://biffweb.com/) Web framework to use 
 Add to your `deps.edn`:
 
 ```clojure
-{:deps {io.github.datalevin/biff-datalevin {:git/tag "v0.1.0" :git/sha "..."}}}
+{:deps {io.github.datalevin/biff-datalevin {:mvn/version "0.1.6"}}}
 ```
 
 ## Biff Integration
