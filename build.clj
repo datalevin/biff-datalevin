@@ -21,7 +21,11 @@
                 :scm {:url "https://github.com/datalevin/biff-datalevin"
                       :connection "scm:git:git://github.com/datalevin/biff-datalevin.git"
                       :developerConnection "scm:git:ssh://git@github.com/datalevin/biff-datalevin.git"
-                      :tag (str "v" version)}})
+                      :tag (str "v" version)}
+                :pom-data [[:licenses
+                            [:license
+                             [:name "MIT License"]
+                             [:url "https://opensource.org/licenses/MIT"]]]]})
   (b/copy-dir {:src-dirs ["src"]
                :target-dir class-dir})
   (b/jar {:class-dir class-dir
