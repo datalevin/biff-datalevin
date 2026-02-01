@@ -314,10 +314,33 @@ This library is designed for Datalevin, which has some differences from Datomic/
 
 4. **Retractions**: Use entity IDs (numbers) for `:db/retractEntity`, not lookup refs. The helper functions handle this automatically.
 
-## Testing
+## Development
+
+### Testing
 
 ```bash
 clj -M:test
+```
+
+### Building
+
+```bash
+# Build JAR only
+clj -T:build jar
+
+# Clean target directory
+clj -T:build clean
+```
+
+### Deploying to Clojars
+
+```bash
+# Set credentials (use a deploy token from https://clojars.org/tokens)
+export CLOJARS_USERNAME=your-username
+export CLOJARS_PASSWORD=CLOJARS_xxxxxxxxx
+
+# Build and deploy
+clj -T:build deploy
 ```
 
 ## License

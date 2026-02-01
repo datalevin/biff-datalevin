@@ -1,8 +1,8 @@
 {:paths ["src"]
 
  :deps
- {org.clojure/clojure {:mvn/version "1.12.0"}
-  datalevin/datalevin {:mvn/version "0.9.22"}
+ {org.clojure/clojure {:mvn/version "1.12.4"}
+  datalevin/datalevin {:mvn/version "0.10.3"}
 
   ;; Auth
   buddy/buddy-hashers {:mvn/version "2.0.167"}
