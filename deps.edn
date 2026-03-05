@@ -2,14 +2,14 @@
 
  :deps
  {org.clojure/clojure {:mvn/version "1.12.4"}
-  datalevin/datalevin {:mvn/version "0.10.5"}
+  datalevin/datalevin {:mvn/version "0.10.7"}
 
   ;; Auth
   buddy/buddy-hashers {:mvn/version "2.0.167"}
-  buddy/buddy-sign {:mvn/version "3.6.1-359"}
+  buddy/buddy-sign    {:mvn/version "3.6.1-359"}
 
   ;; Web (minimal for middleware)
-  ring/ring-core {:mvn/version "1.15.3"}
+  ring/ring-core         {:mvn/version "1.15.3"}
   ring/ring-anti-forgery {:mvn/version "1.4.0"}
 
   ;; HTTP client for OAuth
@@ -21,21 +21,21 @@
  :aliases
  {:dev
   {:extra-paths ["dev" "test"]
-   :extra-deps {io.github.cognitect-labs/test-runner
-                {:git/tag "v0.5.1" :git/sha "dfb30dd"}}}
+   :extra-deps  {io.github.cognitect-labs/test-runner
+                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}}
 
   :test
   {:extra-paths ["test"]
-   :extra-deps {io.github.cognitect-labs/test-runner
-                {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-   :main-opts ["-m" "cognitect.test-runner"]
-   :exec-fn cognitect.test-runner.api/test}
+   :extra-deps  {io.github.cognitect-labs/test-runner
+                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+   :main-opts   ["-m" "cognitect.test-runner"]
+   :exec-fn     cognitect.test-runner.api/test}
 
   :build
-  {:deps {io.github.clojure/tools.build {:mvn/version "0.10.12"}
-          slipset/deps-deploy {:mvn/version "0.2.2"}}
+  {:deps       {io.github.clojure/tools.build {:mvn/version "0.10.12"}
+                slipset/deps-deploy           {:mvn/version "0.2.2"}}
    :ns-default build}
 
   :outdated
   {:extra-deps {com.github.liquidz/antq {:mvn/version "2.11.1276"}}
-   :main-opts ["-m" "antq.core"]}}}
+   :main-opts  ["-m" "antq.core"]}}}
