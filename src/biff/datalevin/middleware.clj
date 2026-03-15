@@ -10,7 +10,8 @@
             [ring.middleware.session.cookie :as cookie]
             [ring.middleware.keyword-params :refer [wrap-keyword-params]]
             [ring.middleware.params :refer [wrap-params]]
-            [ring.middleware.cookies :refer [wrap-cookies]]))
+            [ring.middleware.cookies :refer [wrap-cookies]])
+  (:import [java.nio.charset StandardCharsets]))
 
 ;; =============================================================================
 ;; Context Injection
@@ -54,8 +55,8 @@
           session-user (:user (:session request))
           ;; Try Authorization header
           auth-header (get headers header-name)
-          header-token (when (and auth-header
-                                  (.startsWith auth-header "Bearer "))
+          header-token (when (and (string? auth-header)
+                                  (str/starts-with? auth-header "Bearer "))
                          (subs auth-header 7))
           ;; Try cookie
           cookie-token (get-in cookies [cookie-name :value])
@@ -196,7 +197,7 @@
             :as opts}]
   (let [store (or session-store
                   (when session-secret
-                    (cookie/cookie-store {:key (.getBytes session-secret)})))]
+                    (cookie/cookie-store {:key (.getBytes session-secret StandardCharsets/UTF_8)})))]
     (cond-> handler
       auth? (wrap-authentication {:session-secret session-secret})
       csrf? wrap-csrf

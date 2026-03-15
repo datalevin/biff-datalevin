@@ -30,7 +30,16 @@
     (with-temp-conn [conn]
       (let [db (db/get-db conn)
             ctx {:biff/db db}]
-        (is (= db (db/get-db ctx)))))))
+        (is (= db (db/get-db ctx))))))
+
+  (testing "prefers :biff.datalevin/conn when both conn and :biff/db are present"
+    (with-temp-conn [conn]
+      (let [ctx {:biff.datalevin/conn conn
+                 :biff/db :stale}
+            user-id (UUID/randomUUID)]
+        (db/submit-tx conn [{:user/id user-id
+                             :user/email "fresh-from-conn@example.com"}])
+        (is (some? (db/lookup ctx :user/email "fresh-from-conn@example.com")))))))
 
 (deftest assoc-db-test
   (testing "refreshes :biff/db from connection"
@@ -45,6 +54,16 @@
           (let [refreshed (db/assoc-db system)]
             ;; The refreshed db should see the new user
             (is (some? (db/lookup refreshed :user/email "assoc-db@example.com"))))))))
+
+  (testing "adds :biff/db for contexts that only carry db values"
+    (with-temp-conn [conn]
+      (let [ctx (db/assoc-db {:biff.datalevin/conn conn})
+            user-id (UUID/randomUUID)]
+        (db/submit-tx conn [{:user/id user-id
+                             :user/email "assoc-db-refresh@example.com"}])
+        (is (some? (:biff/db ctx)))
+        (is (some? (db/lookup {:biff/db (:biff/db ctx)}
+                              :user/email "assoc-db-refresh@example.com"))))))
 
   (testing "returns ctx unchanged if no connection"
     (let [ctx {:some "data"}]

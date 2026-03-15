@@ -152,6 +152,24 @@
           ;; Expired session removed (but was already returning nil due to expiration check)
           (is (nil? (db/lookup conn :session/id expired-id))))))))
 
+(deftest cleanup-expired-sessions-bang-test
+  (testing "deletes expired sessions and returns count"
+    (with-temp-conn [conn]
+      (let [user-id (UUID/randomUUID)
+            user-tx (auth/create-user-tx {:user/id user-id
+                                          :user/email "cleanup-bang@example.com"
+                                          :password "pass"})]
+        (db/submit-tx conn [user-tx])
+        (let [valid-session (session/create-session user-id)
+              expired-id (UUID/randomUUID)
+              expired-tx {:session/id expired-id
+                          :session/user [:user/id user-id]
+                          :session/expires-at (Date. 0)}]
+          (db/submit-tx conn [(:tx valid-session) expired-tx])
+          (is (= 1 (session/cleanup-expired-sessions! conn)))
+          (is (some? (session/get-session conn (:session-id valid-session))))
+          (is (nil? (db/lookup conn :session/id expired-id))))))))
+
 ;; =============================================================================
 ;; JWT Token Tests
 ;; =============================================================================
@@ -170,6 +188,13 @@
           secret "test-secret-key-32-bytes-long!!"
           token (session/create-session-token session-id {:secret secret})]
       (is (= session-id (session/verify-session-token token secret)))))
+
+  (testing "returns nil for expired token"
+    (let [session-id (UUID/randomUUID)
+          secret "test-secret-key-32-bytes-long!!"
+          token (session/create-session-token session-id {:secret secret
+                                                          :expires-in-sec -1})]
+      (is (nil? (session/verify-session-token token secret)))))
 
   (testing "returns nil for invalid token"
     (is (nil? (session/verify-session-token "invalid.token.here" "secret"))))
@@ -211,4 +236,19 @@
     (with-temp-conn [conn]
       (let [store (session/datalevin-session-store conn)]
         (is (nil? (.read-session store "invalid-uuid")))
-        (is (nil? (.read-session store nil)))))))
+        (is (nil? (.read-session store nil))))))
+
+  (testing "updates connection for development reloads"
+    (with-temp-conn [conn1]
+      (with-temp-conn [conn2]
+        (let [store (session/datalevin-session-store conn1)
+              user-id (UUID/randomUUID)
+              user-tx (auth/create-user-tx {:user/id user-id
+                                            :user/email "updated-store@example.com"
+                                            :password "pass"})
+              {:keys [session-id tx]} (session/create-session user-id)]
+          (db/submit-tx conn2 [user-tx tx])
+          (is (nil? (.read-session store (str session-id))))
+          (session/update-session-store-conn store conn2)
+          (is (= user-id (get-in (.read-session store (str session-id))
+                                 [:user :user/id]))))))))

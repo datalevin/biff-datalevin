@@ -14,7 +14,7 @@
     (let [hash (auth/hash-password "mysecret")]
       (is (string? hash))
       (is (not= "mysecret" hash))
-      (is (.startsWith hash "bcrypt+sha512$"))))
+      (is (re-matches #"^\$2a\$.*" hash))))
 
   (testing "different passwords produce different hashes"
     (let [hash1 (auth/hash-password "password1")
@@ -24,7 +24,17 @@
   (testing "same password produces different hashes (salted)"
     (let [hash1 (auth/hash-password "samepassword")
           hash2 (auth/hash-password "samepassword")]
-      (is (not= hash1 hash2)))))
+      (is (not= hash1 hash2))))
+
+  (testing "rejects blank password"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Password must be a non-blank string"
+                          (auth/hash-password ""))))
+
+  (testing "rejects nil password"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Password must be a non-blank string"
+                          (auth/hash-password nil)))))
 
 (deftest verify-password-test
   (testing "verifies correct password"
@@ -39,7 +49,10 @@
     (is (not (auth/verify-password nil "somehash"))))
 
   (testing "handles nil hash"
-    (is (not (auth/verify-password "password" nil)))))
+    (is (not (auth/verify-password "password" nil))))
+
+  (testing "handles malformed hash"
+    (is (not (auth/verify-password "password" "not-a-bcrypt-hash")))))
 
 ;; =============================================================================
 ;; User Management Tests
@@ -62,7 +75,19 @@
           tx (auth/create-user-tx {:user/id user-id
                                    :user/email "custom@example.com"
                                    :password "pass"})]
-      (is (= user-id (:user/id tx))))))
+      (is (= user-id (:user/id tx)))))
+
+  (testing "rejects blank password"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Password must be a non-blank string"
+                          (auth/create-user-tx {:user/email "blank@example.com"
+                                                :password ""}))))
+
+  (testing "rejects nil password"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Password must be a non-blank string"
+                          (auth/create-user-tx {:user/email "nil@example.com"
+                                                :password nil})))))
 
 (deftest authenticate-user-test
   (testing "authenticates valid credentials"
@@ -145,11 +170,18 @@
                {:client-id "test"
                 :redirect-uri "http://localhost/cb"
                 :state "random-state-123"})]
-      (is (.contains url "state=random-state-123")))))
+      (is (.contains url "state=random-state-123"))))
 
-(deftest github-find-or-create-user-tx-test
+  (testing "encodes state parameter"
+    (let [url (auth/github-authorize-url
+               {:client-id "test"
+                :redirect-uri "http://localhost/cb"
+                :state "a state/with?chars=1"})]
+      (is (.contains url "state=a+state%2Fwith%3Fchars%3D1")))))
+
+(deftest github-create-user-tx-test
   (testing "creates transaction from GitHub user data"
-    (let [tx (auth/github-find-or-create-user-tx
+    (let [tx (auth/github-create-user-tx
               {:id 12345
                :login "octocat"
                :email "octocat@github.com"
@@ -159,12 +191,20 @@
       (is (= "octocat@github.com" (:user/email tx)))
       (is (= "https://github.com/images/octocat.png" (:user/avatar-url tx)))
       (is (contains? tx :user/id))
-      (is (= :db/now (:user/created-at tx))))))
+      (is (= :db/now (:user/created-at tx)))))
+
+  (testing "deprecated alias delegates to github-create-user-tx"
+    (let [github-user {:id 12345
+                       :login "octocat"
+                       :email "octocat@github.com"
+                       :avatar_url "https://github.com/images/octocat.png"}]
+      (is (= (dissoc (auth/github-create-user-tx github-user) :user/id)
+             (dissoc (auth/github-find-or-create-user-tx github-user) :user/id))))))
 
 (deftest find-user-by-github-id-test
   (testing "finds user by GitHub ID"
     (with-temp-conn [conn]
-      (let [tx (auth/github-find-or-create-user-tx
+      (let [tx (auth/github-create-user-tx
                 {:id 99999
                  :login "testgh"
                  :email "gh@example.com"

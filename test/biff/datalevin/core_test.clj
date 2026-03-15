@@ -121,6 +121,60 @@
       (is (= 8080 (:port system)))
       (is (= "localhost" (:host system))))))
 
+(deftest use-session-cleanup-test
+  (testing "throws without conn"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Missing required :biff.datalevin/conn"
+                          (core/use-session-cleanup {:biff/stop []}))))
+
+  (testing "cleans expired sessions on startup"
+    (let [temp-dir (helpers/create-temp-dir)
+          seed-conn (db/get-conn temp-dir helpers/test-schema)
+          user-id (UUID/randomUUID)
+          session-id (UUID/randomUUID)]
+      (try
+        (db/submit-tx seed-conn [{:user/id user-id
+                                  :user/email "startup-cleanup@example.com"}
+                                 {:session/id session-id
+                                  :session/user [:user/id user-id]
+                                  :session/expires-at (java.util.Date. 0)}])
+        (finally
+          (db/close-conn seed-conn)))
+      (let [system (core/start-system
+                    {:biff.datalevin/db-path temp-dir
+                     :biff.datalevin/schema helpers/test-schema
+                     :biff.datalevin.session/cleanup-interval-ms 60000}
+                    [core/use-datalevin
+                     core/use-session-cleanup])]
+        (try
+          (is (nil? (db/lookup system :session/id session-id)))
+          (finally
+            (core/stop-system system)
+            (helpers/delete-dir temp-dir))))))
+
+  (testing "schedules periodic cleanup and shuts down on stop"
+    (let [temp-dir (helpers/create-temp-dir)
+          calls (atom 0)
+          ran? (promise)
+          cleanup-fn (fn [_]
+                       (when (= 1 (swap! calls inc))
+                         (deliver ran? true)))
+          system (core/start-system
+                  {:biff.datalevin/db-path temp-dir
+                   :biff.datalevin/schema helpers/test-schema
+                   :biff.datalevin.session/cleanup-interval-ms 10
+                   :biff.datalevin.session/run-cleanup-on-start? false
+                   :biff.datalevin.session/cleanup-fn cleanup-fn}
+                  [core/use-datalevin
+                   core/use-session-cleanup])]
+      (try
+        (is (true? (deref ran? 2000 false)))
+        (is (some? (:biff.datalevin.session/cleanup-executor system)))
+        (finally
+          (core/stop-system system)
+          (is (.isShutdown (:biff.datalevin.session/cleanup-executor system)))
+          (helpers/delete-dir temp-dir))))))
+
 (deftest assoc-stop-test
   (testing "adds stop function to system"
     (let [system {:biff/stop []}

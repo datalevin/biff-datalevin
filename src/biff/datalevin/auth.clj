@@ -4,11 +4,26 @@
    Provides patterns for:
    - Password-based authentication with bcrypt
    - OAuth flows (GitHub, extensible to other providers)"
-  (:require [buddy.hashers :as hashers]
-            [clj-http.client :as http]
+  (:require [hato.client :as http]
             [jsonista.core :as json]
             [biff.datalevin.db :as db])
-  (:import [java.util UUID Date]))
+  (:import [java.util UUID Date]
+           [org.mindrot.jbcrypt BCrypt]))
+
+(def ^:private json-mapper json/keyword-keys-object-mapper)
+
+(defn- parse-json-response
+  [{:keys [body]}]
+  (when body
+    (with-open [body body]
+      (json/read-value body json-mapper))))
+
+(defn- assert-valid-password!
+  [password]
+  (when-not (and (string? password)
+                 (not (clojure.string/blank? password)))
+    (throw (ex-info "Password must be a non-blank string"
+                    {:type ::invalid-password}))))
 
 ;; =============================================================================
 ;; Password Hashing
@@ -22,8 +37,8 @@
   ([password]
    (hash-password password {}))
   ([password {:keys [iterations] :or {iterations 12}}]
-   (hashers/derive password {:alg :bcrypt+sha512
-                             :iterations iterations})))
+   (assert-valid-password! password)
+   (BCrypt/hashpw password (BCrypt/gensalt iterations))))
 
 (defn verify-password
   "Verifies a password against a hash.
@@ -31,7 +46,10 @@
    Returns true if the password matches, false otherwise."
   [password hash]
   (when (and password hash)
-    (:valid (hashers/verify password hash))))
+    (try
+      (BCrypt/checkpw password hash)
+      (catch IllegalArgumentException _
+        false))))
 
 ;; =============================================================================
 ;; User Management Helpers
@@ -42,7 +60,7 @@
 
    Required:
      :user/email - User's email address
-     :password   - Plain text password (will be hashed)
+     :password   - Non-blank plain text password (will be hashed)
 
    Optional:
      :user/username - Username
@@ -54,6 +72,7 @@
    Note: The :user/id attribute must be unique in the schema for lookups to work."
   [{:keys [password] :as user-data}]
   (let [user-id (or (:user/id user-data) (UUID/randomUUID))]
+    (assert-valid-password! password)
     (-> user-data
         (dissoc :password)
         (assoc :user/id user-id
@@ -110,7 +129,8 @@
        "?client_id=" client-id
        "&redirect_uri=" (java.net.URLEncoder/encode redirect-uri "UTF-8")
        "&scope=" (java.net.URLEncoder/encode scope "UTF-8")
-       (when state (str "&state=" state))))
+       (when state
+         (str "&state=" (java.net.URLEncoder/encode state "UTF-8")))))
 
 (defn github-exchange-code
   "Exchanges an OAuth authorization code for an access token.
@@ -122,9 +142,9 @@
                                            :client_secret client-secret
                                            :code code
                                            :redirect_uri redirect-uri}
-                             :headers {"Accept" "application/json"}
-                             :as :json})]
-    (:body response)))
+                             :headers {"accept" "application/json"}
+                             :as :stream})]
+    (parse-json-response response)))
 
 (defn github-get-user
   "Fetches the authenticated user's profile from GitHub.
@@ -132,20 +152,21 @@
    Returns a map with GitHub user data including :id, :login, :email, :avatar_url, etc."
   [access-token]
   (let [response (http/get github-user-endpoint
-                           {:headers {"Authorization" (str "Bearer " access-token)
-                                      "Accept" "application/json"}
-                            :as :json})]
-    (:body response)))
+                           {:headers {"authorization" (str "Bearer " access-token)
+                                      "accept" "application/json"}
+                            :as :stream})]
+    (parse-json-response response)))
 
-(defn github-find-or-create-user-tx
+(defn github-create-user-tx
   "Creates transaction data for creating a user from GitHub profile.
 
    Takes GitHub user data and returns a transaction map.
-   Uses :user/github-id as the unique identifier.
+   Uses :user/github-id as the unique identifier for the new user.
 
    Example:
      (let [gh-user (github-get-user access-token)]
-       (submit-tx conn [(github-find-or-create-user-tx gh-user)]))"
+       (when-not (find-user-by-github-id conn (:id gh-user))
+         (submit-tx conn [(github-create-user-tx gh-user)])))"
   [github-user]
   (let [user-id (UUID/randomUUID)]
     {:user/id user-id
@@ -154,6 +175,14 @@
      :user/email (:email github-user)
      :user/avatar-url (:avatar_url github-user)
      :user/created-at :db/now}))
+
+(defn github-find-or-create-user-tx
+  "Deprecated alias for github-create-user-tx.
+
+   This function never performed a lookup; use find-user-by-github-id first
+   if you need true find-or-create behavior."
+  [github-user]
+  (github-create-user-tx github-user))
 
 (defn find-user-by-github-id
   "Finds a user by their GitHub ID.
@@ -211,9 +240,9 @@
                  extra-params (merge extra-params))
         response (http/post token-url
                             {:form-params params
-                             :headers {"Accept" "application/json"}
-                             :as :json})]
-    (:body response)))
+                             :headers {"accept" "application/json"}
+                             :as :stream})]
+    (parse-json-response response)))
 
 ;; =============================================================================
 ;; Email Verification

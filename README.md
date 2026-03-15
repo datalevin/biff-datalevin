@@ -37,6 +37,7 @@ This library is designed to work as a drop-in Datalevin component for Biff appli
 
 (def components
   [dl/use-datalevin  ;; Adds :biff.datalevin/conn and :biff/db
+   dl/use-session-cleanup
    ;; ... other Biff components
    ])
 
@@ -45,13 +46,15 @@ This library is designed to work as a drop-in Datalevin component for Biff appli
 ;;   :biff/db             - Database snapshot (Biff compatibility)
 ```
 
-After transactions, refresh `:biff/db` to see new data:
+If you want a Biff-compatible context that carries `:biff/db`, you can attach it with `assoc-db`:
 
 ```clojure
-(db/submit-tx ctx [{:user/id (UUID/randomUUID) :user/email "new@example.com"}])
-(let [ctx (db/assoc-db ctx)]  ;; Refresh :biff/db
+(let [ctx (db/assoc-db ctx)]
   (db/lookup ctx :user/email "new@example.com"))
 ```
+
+When both `:biff.datalevin/conn` and `:biff/db` are present, query helpers prefer
+`:biff.datalevin/conn`.
 
 ## Quick Start
 
@@ -72,8 +75,10 @@ After transactions, refresh `:biff/db` to see new data:
 (def system
   (core/start-system
     {:biff.datalevin/db-path "data/myapp"
-     :biff.datalevin/schema schema}
-    [core/use-datalevin]))
+     :biff.datalevin/schema schema
+     :biff.datalevin.session/cleanup-interval-ms (* 60 60 1000)}
+    [core/use-datalevin
+     core/use-session-cleanup]))
 
 ;; Create a user
 (let [user-tx (auth/create-user-tx {:user/email "user@example.com"
@@ -99,8 +104,10 @@ System lifecycle management:
   (core/start-system
     {:biff.datalevin/db-path "data/myapp"
      :biff.datalevin/schema my-schema
+     :biff.datalevin.session/cleanup-interval-ms (* 60 60 1000)
      :port 8080}
     [core/use-datalevin
+     core/use-session-cleanup
      my-custom-component]))
 
 ;; Stop the system (calls cleanup functions in reverse order)
@@ -165,6 +172,9 @@ Password and OAuth authentication:
                                      :password "secret123"})]
   (db/submit-tx system [user-tx]))
 
+;; create-user-tx rejects nil/blank passwords.
+;; Stronger password policy should still be enforced at your request boundary.
+
 ;; Authenticate user
 (auth/authenticate-user system "user@example.com" "secret123")
 ;; => {:user/id #uuid "...", :user/email "user@example.com", ...} or nil
@@ -181,7 +191,9 @@ Password and OAuth authentication:
                         :client-secret "..."
                         :code code
                         :redirect-uri "..."})]
-  (auth/github-get-user (:access_token token-response)))
+  (let [gh-user (auth/github-get-user (:access_token token-response))]
+    (when-not (auth/find-user-by-github-id system (:id gh-user))
+      (db/submit-tx system [(auth/github-create-user-tx gh-user)]))))
 
 ;; Email verification tokens
 (let [{:keys [token tx]} (auth/create-verification-token user-id)]
@@ -215,6 +227,10 @@ Datalevin-backed session management:
 (when-let [delete-tx (session/delete-session-tx system session-id)]
   (db/submit-tx system [delete-tx]))
 
+;; Remove expired sessions immediately
+(session/cleanup-expired-sessions! system)
+;; => number of deleted sessions
+
 ;; JWT tokens for stateless auth
 (def secret "your-32-byte-secret-key-here!!!")
 (session/create-session-token session-id {:secret secret})
@@ -226,6 +242,22 @@ Datalevin-backed session management:
 (-> handler
     (wrap-session {:store (session/datalevin-session-store conn)}))
 ```
+
+For automatic cleanup in long-running processes, add `core/use-session-cleanup`
+after `core/use-datalevin`. It runs once at startup and then hourly by default.
+
+```clojure
+(core/start-system
+  {:biff.datalevin/db-path "data/myapp"
+   :biff.datalevin/schema my-schema
+   :biff.datalevin.session/cleanup-interval-ms (* 60 60 1000)}
+  [core/use-datalevin
+   core/use-session-cleanup
+   my-app-component])
+```
+
+If you prefer external scheduling, call `session/cleanup-expired-sessions!`
+from cron or a job runner.
 
 ### Middleware (`biff.datalevin.middleware`)
 

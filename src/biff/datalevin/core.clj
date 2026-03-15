@@ -3,7 +3,11 @@
 
    Provides a simple map-based component system inspired by Biff's architecture.
    Components are functions that take a system map and return a modified system map."
-  (:require [biff.datalevin.db :as db]))
+  (:require [biff.datalevin.db :as db]
+            [biff.datalevin.session :as session])
+  (:import [java.util.concurrent Executors ThreadFactory TimeUnit]))
+
+(declare assoc-stop)
 
 (defn start-system
   "Starts the system by threading the initial system map through each component.
@@ -55,6 +59,52 @@
         (assoc :biff.datalevin/conn conn)
         (assoc :biff/db (db/get-db conn))
         (update :biff/stop conj #(db/close-conn conn)))))
+
+(defn use-session-cleanup
+  "Component that periodically removes expired sessions.
+
+   Required keys in system map:
+     :biff.datalevin/conn - Datalevin connection
+
+   Optional keys:
+     :biff.datalevin.session/cleanup-interval-ms   - Interval between runs (default 3600000)
+     :biff.datalevin.session/run-cleanup-on-start? - Run once during startup (default true)
+     :biff.datalevin.session/cleanup-fn            - Override cleanup function; primarily useful for testing
+
+   Adds to system map:
+     :biff.datalevin.session/cleanup-executor - Scheduled executor for cleanup"
+  [{:biff.datalevin/keys [conn] :as system}]
+  (when-not conn
+    (throw (ex-info "Missing required :biff.datalevin/conn" {})))
+  (let [interval-ms (get system :biff.datalevin.session/cleanup-interval-ms (* 60 60 1000))
+        run-on-start? (get system :biff.datalevin.session/run-cleanup-on-start? true)
+        cleanup-fn (get system :biff.datalevin.session/cleanup-fn session/cleanup-expired-sessions!)]
+    (when-not (and (integer? interval-ms) (pos? interval-ms))
+      (throw (ex-info "Expected :biff.datalevin.session/cleanup-interval-ms to be a positive integer"
+                      {:value interval-ms})))
+    (let [task (fn []
+                 (try
+                   (cleanup-fn system)
+                   (catch Exception e
+                     (println "Error during session cleanup:" (.getMessage e)))))
+          runnable (reify Runnable
+                     (run [_]
+                       (task)))
+          executor (Executors/newSingleThreadScheduledExecutor
+                    (reify ThreadFactory
+                      (newThread [_ runnable]
+                        (doto (Thread. runnable "biff-datalevin-session-cleanup")
+                          (.setDaemon true)))))]
+      (when run-on-start?
+        (task))
+      (.scheduleWithFixedDelay executor
+                               runnable
+                               interval-ms
+                               interval-ms
+                               TimeUnit/MILLISECONDS)
+      (-> system
+          (assoc :biff.datalevin.session/cleanup-executor executor)
+          (assoc-stop #(.shutdownNow executor))))))
 
 (defn use-config
   "Component that merges configuration into the system map.

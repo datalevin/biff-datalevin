@@ -38,11 +38,14 @@
    Accepts:
      - A Datalevin connection (Atom) -> calls (d/db conn)
      - A Datalevin database value -> returns as-is
-     - A system/context map with :biff.datalevin/conn -> extracts and converts
-     - A system/context map with :biff/db -> returns the db value (Biff compatibility)"
+     - A system/context map with :biff.datalevin/conn -> gets the current db value from the connection
+     - A system/context map with only :biff/db -> returns the db value (Biff compatibility)
+
+   If both :biff.datalevin/conn and :biff/db are present, :biff.datalevin/conn
+   takes precedence."
   [conn-or-db-or-system]
   (cond
-    ;; System map with connection - get fresh db snapshot
+    ;; System map with connection - get current db value
     (and (map? conn-or-db-or-system)
          (:biff.datalevin/conn conn-or-db-or-system))
     (d/db (:biff.datalevin/conn conn-or-db-or-system))
@@ -63,8 +66,8 @@
 (defn assoc-db
   "Sets :biff/db on the context map to the current database snapshot.
 
-   Use this in middleware to ensure handlers have a consistent db view,
-   or after transactions to refresh the snapshot.
+   Use this for Biff compatibility or to attach a db value to contexts that
+   may later be passed around without :biff.datalevin/conn.
 
    This matches Biff's assoc-db pattern for compatibility."
   [ctx]

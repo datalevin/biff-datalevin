@@ -4,9 +4,63 @@
    Provides both direct session management functions and a Ring-compatible
    session store implementation."
   (:require [biff.datalevin.db :as db]
-            [buddy.sign.jwt :as jwt]
+            [jsonista.core :as json]
             [ring.middleware.session.store :as store])
-  (:import [java.util UUID Date]))
+  (:import [java.nio.charset StandardCharsets]
+           [java.security MessageDigest]
+           [java.util Base64 UUID Date]
+           [javax.crypto Mac]
+           [javax.crypto.spec SecretKeySpec]))
+
+(def ^:private jwt-header {:alg "HS256" :typ "JWT"})
+(def ^:private jwt-json-mapper json/keyword-keys-object-mapper)
+
+(defn- utf8-bytes
+  [^String s]
+  (.getBytes s StandardCharsets/UTF_8))
+
+(defn- base64url-encode
+  [bs]
+  (.encodeToString (.withoutPadding (Base64/getUrlEncoder)) bs))
+
+(defn- base64url-decode
+  [^String s]
+  (.decode (Base64/getUrlDecoder) s))
+
+(defn- hmac-sha256
+  [secret signing-input]
+  (let [mac (Mac/getInstance "HmacSHA256")]
+    (.init mac (SecretKeySpec. (utf8-bytes secret) "HmacSHA256"))
+    (.doFinal mac (utf8-bytes signing-input))))
+
+(defn- create-jwt
+  [claims secret]
+  (let [header (base64url-encode (json/write-value-as-bytes jwt-header jwt-json-mapper))
+        payload (base64url-encode (json/write-value-as-bytes claims jwt-json-mapper))
+        signing-input (str header "." payload)
+        signature (base64url-encode (hmac-sha256 secret signing-input))]
+    (str signing-input "." signature)))
+
+(defn- parse-jwt-json
+  [segment]
+  (json/read-value (base64url-decode segment) jwt-json-mapper))
+
+(defn- verify-jwt
+  [token secret]
+  (let [[header payload signature & more] (clojure.string/split token #"\.")]
+    (when (and header payload signature (nil? more))
+      (let [signing-input (str header "." payload)
+            expected (hmac-sha256 secret signing-input)
+            actual (base64url-decode signature)
+            header-map (parse-jwt-json header)
+            claims (parse-jwt-json payload)
+            now (quot (System/currentTimeMillis) 1000)]
+        (when (and (MessageDigest/isEqual actual expected)
+                   (= "HS256" (:alg header-map))
+                   (= "JWT" (:typ header-map))
+                   (number? (:exp claims))
+                   (< now (long (:exp claims))))
+          claims)))))
 
 ;; =============================================================================
 ;; Session Management
@@ -101,6 +155,16 @@
                            db now)]
     (mapv (fn [eid] [:db/retractEntity eid]) expired-eids)))
 
+(defn cleanup-expired-sessions!
+  "Deletes expired sessions and returns the number removed.
+
+   Accepts a Datalevin connection or system map."
+  [conn-or-system]
+  (let [txs (cleanup-expired-sessions-tx conn-or-system)]
+    (when (seq txs)
+      (db/submit-tx conn-or-system txs))
+    (count txs)))
+
 ;; =============================================================================
 ;; Cookie-Based Sessions with JWT
 ;; =============================================================================
@@ -108,13 +172,13 @@
 (defn create-session-token
   "Creates a signed JWT token containing session data.
 
-   Options:
+  Options:
      :secret         - Signing secret (required)
      :expires-in-sec - Token lifetime in seconds (default 604800 = 7 days)"
   [session-id {:keys [secret expires-in-sec] :or {expires-in-sec 604800}}]
-  (jwt/sign {:session-id (str session-id)
-             :exp (+ (quot (System/currentTimeMillis) 1000) expires-in-sec)}
-            secret))
+  (create-jwt {:session-id (str session-id)
+               :exp (+ (quot (System/currentTimeMillis) 1000) expires-in-sec)}
+              secret))
 
 (defn verify-session-token
   "Verifies and decodes a JWT session token.
@@ -122,7 +186,7 @@
    Returns the session-id as UUID if valid, nil otherwise."
   [token secret]
   (try
-    (let [claims (jwt/unsign token secret)]
+    (let [claims (verify-jwt token secret)]
       (UUID/fromString (:session-id claims)))
     (catch Exception _
       nil)))
@@ -131,22 +195,22 @@
 ;; Ring Session Store
 ;; =============================================================================
 
-(deftype DatalevinSessionStore [conn-atom opts]
+(deftype DatalevinSessionStore [^{:volatile-mutable true} conn opts]
   store/SessionStore
 
-  (read-session [_ session-id]
+  (read-session [this session-id]
     (when session-id
       (try
         (let [uuid (if (uuid? session-id)
                      session-id
                      (UUID/fromString session-id))]
-          (when-let [session (get-session @conn-atom uuid)]
+          (when-let [session (get-session (.-conn this) uuid)]
             {:user (:session/user session)
              :session-id uuid}))
         (catch Exception _
           nil))))
 
-  (write-session [_ session-id data]
+  (write-session [this session-id data]
     (let [new-id (or (when session-id
                        (try (if (uuid? session-id)
                               session-id
@@ -158,17 +222,17 @@
       (when user-id
         (let [{:keys [tx]} (create-session user-id :expires-in-hours expires-hours)]
           ;; Override the session-id with the one we want
-          (db/submit-tx @conn-atom [(assoc tx :session/id new-id)])))
+          (db/submit-tx (.-conn this) [(assoc tx :session/id new-id)])))
       (str new-id)))
 
-  (delete-session [_ session-id]
+  (delete-session [this session-id]
     (when session-id
       (try
         (let [uuid (if (uuid? session-id)
                      session-id
                      (UUID/fromString session-id))]
-          (when-let [delete-tx (delete-session-tx @conn-atom uuid)]
-            (db/submit-tx @conn-atom [delete-tx])))
+          (when-let [delete-tx (delete-session-tx (.-conn this) uuid)]
+            (db/submit-tx (.-conn this) [delete-tx])))
         (catch Exception _
           nil)))
     nil))
@@ -184,11 +248,16 @@
   ([conn]
    (datalevin-session-store conn {}))
   ([conn opts]
-   (->DatalevinSessionStore (atom conn) opts)))
+   (->DatalevinSessionStore conn opts)))
+
+(def ^:private session-store-conn-field
+  (doto (.getDeclaredField DatalevinSessionStore "conn")
+    (.setAccessible true)))
 
 (defn update-session-store-conn
   "Updates the connection used by a session store.
 
    Useful when the connection changes during development."
   [store conn]
-  (reset! (.-conn-atom store) conn))
+  (.set ^java.lang.reflect.Field session-store-conn-field store conn)
+  store)

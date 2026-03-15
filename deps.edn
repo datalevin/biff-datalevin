@@ -5,15 +5,14 @@
   datalevin/datalevin {:mvn/version "0.10.7"}
 
   ;; Auth
-  buddy/buddy-hashers {:mvn/version "2.0.167"}
-  buddy/buddy-sign    {:mvn/version "3.6.1-359"}
+  org.mindrot/jbcrypt {:mvn/version "0.3m"}
 
   ;; Web (minimal for middleware)
   ring/ring-core         {:mvn/version "1.15.3"}
   ring/ring-anti-forgery {:mvn/version "1.4.0"}
 
   ;; HTTP client for OAuth
-  clj-http/clj-http {:mvn/version "3.13.1"}
+  hato/hato {:mvn/version "1.0.0"}
 
   ;; JSON for OAuth responses
   metosin/jsonista {:mvn/version "0.3.13"}}

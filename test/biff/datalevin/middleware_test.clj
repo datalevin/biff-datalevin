@@ -74,6 +74,12 @@
     (let [handler (fn [req] {:status 200 :body (:user req)})
           wrapped (mw/wrap-authentication handler {})
           response (wrapped {})]
+      (is (nil? (:body response)))))
+
+  (testing "ignores nil authorization header"
+    (let [handler (fn [req] {:status 200 :body (:user req)})
+          wrapped (mw/wrap-authentication handler {})
+          response (wrapped {:headers {"authorization" nil}})]
       (is (nil? (:body response))))))
 
 (deftest wrap-require-auth-test
@@ -173,7 +179,15 @@
                                                    :csrf? false
                                                    :auth? false})
           response (wrapped {:query-string "key=value"})]
-      (is (= {:key "value"} (:body response))))))
+      (is (= {:key "value"} (:body response)))))
+
+  (testing "supports non-ascii session secrets"
+    (let [handler (fn [_] {:status 200 :body "ok"})
+          wrapped (mw/wrap-site-defaults handler {:session-secret "12345678901234ä"
+                                                  :csrf? false
+                                                  :auth? false})
+          response (wrapped {})]
+      (is (= 200 (:status response))))))
 
 (deftest wrap-api-defaults-test
   (testing "includes base defaults without CSRF"
