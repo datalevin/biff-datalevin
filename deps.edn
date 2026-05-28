@@ -1,21 +1,21 @@
 {:paths ["src"]
 
  :deps
- {org.clojure/clojure {:mvn/version "1.12.4"}
-  datalevin/datalevin {:mvn/version "0.10.7"}
+ {org.clojure/clojure {:mvn/version "1.12.5"}
+  org.datalevin/datalevin-embedded {:mvn/version "0.10.18"}
 
   ;; Auth
-  org.mindrot/jbcrypt {:mvn/version "0.3m"}
+  org.mindrot/jbcrypt {:mvn/version "0.4"}
 
   ;; Web (minimal for middleware)
-  ring/ring-core         {:mvn/version "1.15.3"}
+  ring/ring-core         {:mvn/version "1.15.4"}
   ring/ring-anti-forgery {:mvn/version "1.4.0"}
 
   ;; HTTP client for OAuth
   hato/hato {:mvn/version "1.0.0"}
 
   ;; JSON for OAuth responses
-  metosin/jsonista {:mvn/version "0.3.13"}}
+  metosin/jsonista {:mvn/version "1.0.0"}}
 
  :aliases
  {:dev
@@ -31,8 +31,8 @@
    :exec-fn     cognitect.test-runner.api/test}
 
   :build
-  {:deps       {io.github.clojure/tools.build {:mvn/version "0.10.12"}
-                slipset/deps-deploy           {:mvn/version "0.2.2"}}
+  {:deps       {io.github.clojure/tools.build {:mvn/version "0.10.14"}
+                slipset/deps-deploy           {:mvn/version "0.2.4"}}
    :ns-default build}
 
   :outdated
