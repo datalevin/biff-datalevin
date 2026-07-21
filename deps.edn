@@ -2,13 +2,13 @@
 
  :deps
  {org.clojure/clojure {:mvn/version "1.12.5"}
-  org.datalevin/datalevin-embedded {:mvn/version "0.10.18"}
+  org.datalevin/datalevin-embedded {:mvn/version "1.0.0"}
 
   ;; Auth
   org.mindrot/jbcrypt {:mvn/version "0.4"}
 
   ;; Web (minimal for middleware)
-  ring/ring-core         {:mvn/version "1.15.4"}
+  ring/ring-core         {:mvn/version "1.15.5"}
   ring/ring-anti-forgery {:mvn/version "1.4.0"}
 
   ;; HTTP client for OAuth
@@ -32,7 +32,9 @@
 
   :build
   {:deps       {io.github.clojure/tools.build {:mvn/version "0.10.14"}
-                slipset/deps-deploy           {:mvn/version "0.2.4"}}
+                org.apache.maven/maven-core   {:mvn/version "3.9.16"}
+                slipset/deps-deploy           {:mvn/version "0.2.5"
+                                               :exclusions [org.sonatype.plexus/plexus-sec-dispatcher]}}
    :ns-default build}
 
   :outdated
