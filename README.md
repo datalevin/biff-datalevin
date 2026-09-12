@@ -1,9 +1,10 @@
 # biff-datalevin
 
-A Clojure library that adapts [Biff](https://biffweb.com/) Web framework to use [Datalevin](https://github.com/juji-io/datalevin) as the database.
+A Clojure library that adapts the [Biff](https://biffweb.com/) web framework to use [Datalevin](https://github.com/juji-io/datalevin) as the database. Includes a Biff 2 database adapter and Biff 1.x component compatibility.
 
 ## Features
 
+- **Biff 2 database adapter** - A `biff.core` module with KV store, snapshots, `on-tx`, biff.fx handlers, and biff.graph resolvers
 - **System lifecycle management** - Simple map-based component system inspired by Biff
 - **Database utilities** - Connection management, transaction helpers, and query utilities
 - **Authentication** - Password hashing with bcrypt, OAuth support (GitHub and generic providers)
@@ -15,10 +16,89 @@ A Clojure library that adapts [Biff](https://biffweb.com/) Web framework to use 
 Add to your `deps.edn`:
 
 ```clojure
-{:deps {io.github.datalevin/biff-datalevin {:mvn/version "0.2.13"}}}
+{:deps {io.github.datalevin/biff-datalevin {:mvn/version "0.3.18"}}}
 ```
 
-## Biff Integration
+## Biff 2 Integration
+
+`biff.datalevin.adapter` implements Biff 2's
+[database adapter interface](https://github.com/jacobobryant/biff/blob/master/docs/db-adapters.md):
+a `biff.core` module with lifecycle functions, a key-value store,
+`:biff.core/wrap-db-snapshot`, `:biff.core/on-tx` notifications, biff.fx
+handlers, and biff.graph resolvers generated from your Datalevin schema.
+
+```clojure
+(ns myapp.modules
+  (:require [biff.datalevin.adapter :as dl]
+            [com.biffweb.fx :as biff.fx]
+            [com.biffweb.graph :as biff.graph]))
+
+(def schema
+  {:user/id         {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
+   :user/email      {:db/valueType :db.type/string :db/unique :db.unique/identity}
+   :user/created-at {:db/valueType :db.type/instant}
+
+   :pet/id      {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
+   :pet/name    {:db/valueType :db.type/string}
+   :user/pet-id {:db/valueType :db.type/ref}
+
+   ;; Refs whose names don't imply their target type need :biff.datalevin/ref:
+   :group/members {:db/valueType       :db.type/ref
+                   :db/cardinality     :db.cardinality/many
+                   :biff.datalevin/ref :user/id}})
+
+(def modules
+  [(biff.fx/module)
+   (biff.graph/module)
+   (dl/module {:biff.datalevin/db-path "data/myapp"
+               :biff.datalevin/schema schema})])
+
+(def start-order
+  [:biff.datalevin/module])
+```
+
+The module adds the following to the system map:
+
+- `:biff.core/kv-get` / `:biff.core/kv-set` / `:biff.core/kv-list` - used by
+  Biff libraries such as `biff.authenticate`
+- `:biff.core/wrap-db-snapshot` - runs each `biff.graph/query` in a Datalevin
+  transaction so all resolvers see a consistent view. Since this serializes
+  graph queries and blocks writes while they run, you can set
+  `:biff.datalevin/snapshot? false` to disable it and get concurrent reads
+  instead
+- `:biff.datalevin/conn` - the Datalevin connection
+- `:biff.core/on-tx` is called after every transaction
+- biff.fx handlers `:biff.datalevin.fx/q` and `:biff.datalevin.fx/execute-tx`
+- one biff.graph resolver per entity type (grouped by attribute namespace),
+  with ref attributes returned as joins
+
+Reads and writes:
+
+```clojure
+(dl/q system '[:find ?e :where [?e :user/email "a@b.com"]])
+
+(dl/execute-tx system [{:user/id         (random-uuid)
+                        :user/email      "a@b.com"
+                        :user/created-at :db/now}])
+```
+
+Graph queries:
+
+```clojure
+(biff.graph/query system {:user/id user-id}
+                  [:user/email {:user/pet [:pet/name]}])
+```
+
+Ref target types are inferred from attribute names: `:session/user` joins to
+`:user/id` and `:user/pet-id` joins to `:pet/id`. For refs whose names don't
+imply their target (e.g. `:group/members`), set `:biff.datalevin/ref` in the
+schema entry.
+
+## Biff 1 Compatibility
+
+The rest of this document covers the Biff 1.x compatibility API
+(`biff.datalevin.core` and friends). It still works with Biff 1.x
+applications.
 
 This library is designed to work as a drop-in Datalevin component for Biff applications:
 
@@ -93,6 +173,24 @@ When both `:biff.datalevin/conn` and `:biff/db` are present, query helpers prefe
 ```
 
 ## Modules
+
+### Biff 2 Adapter (`biff.datalevin.adapter`)
+
+The Biff 2 adapter. See [Biff 2 Integration](#biff-2-integration) above.
+
+```clojure
+;; Create the module
+(dl/module {:biff.datalevin/db-path "data/myapp"
+            :biff.datalevin/schema my-schema
+            :biff.datalevin/opts {...}})   ; passed to d/get-conn
+
+;; Generate resolvers yourself (usually not needed)
+(dl/make-resolvers my-schema)
+
+;; Query and write
+(dl/q system '[:find ?e :where [?e :user/email "a@b.com"]])
+(dl/execute-tx system [{:user/id (random-uuid) :user/email "a@b.com"}])
+```
 
 ### Core (`biff.datalevin.core`)
 

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.18] - 2026-09-11
+
+### Added
+
+- **Biff 2 adapter** (`biff.datalevin.adapter`)
+  - `module` implementing Biff 2's
+    [database adapter interface](https://github.com/jacobobryant/biff/blob/master/docs/db-adapters.md):
+    lifecycle functions, `:biff.core/kv-get` / `:biff.core/kv-set` /
+    `:biff.core/kv-list`, `:biff.core/wrap-db-snapshot`, and
+    `:biff.core/on-tx` notifications
+  - `:biff.datalevin/snapshot?` module option (default true); set it to false
+    to skip `:biff.core/wrap-db-snapshot` and allow concurrent graph queries
+  - biff.fx handlers `:biff.datalevin.fx/q` and `:biff.datalevin.fx/execute-tx`
+  - `make-resolvers`, which generates biff.graph resolvers from a Datalevin
+    schema, with ref attributes returned as joins
+  - `:biff.datalevin/ref` schema key for ref attributes whose target entity
+    type can't be inferred from the attribute name (e.g. `:group/members`)
+
+### Changed
+
+- Added `com.biffweb/core` and `com.biffweb/graph` dependencies.
+
 ## [0.1.6] - 2026-01-31
 
 ### Improved
@@ -51,5 +73,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite (50 tests, 195 assertions)
 - Documentation with usage examples
 
-[Unreleased]: https://github.com/datalevin/biff-datalevin/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/datalevin/biff-datalevin/compare/v0.3.18...HEAD
+[0.3.18]: https://github.com/datalevin/biff-datalevin/compare/v0.2.17...v0.3.18
 [0.1.0]: https://github.com/datalevin/biff-datalevin/releases/tag/v0.1.0
